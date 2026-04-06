@@ -7,6 +7,8 @@ From: nvcr.io/nvidia/pytorch:24.07-py3
 %post
     apt-get update && apt-get install -y --no-install-recommends \
         git \
+        vim \
+        less \
         && rm -rf /var/lib/apt/lists/*
 
     pip install --no-cache-dir \
@@ -14,7 +16,8 @@ From: nvcr.io/nvidia/pytorch:24.07-py3
         pyyaml \
         scipy \
         matplotlib \
-        tqdm
+        tqdm \
+        anthropic
 
 %environment
     export LC_ALL=C.UTF-8
