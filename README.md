@@ -64,16 +64,14 @@ vim train.py
 git add -A && git commit -m "try higher learning rate"
 git push
 
-# Submit to cluster
-cer submit $(git rev-parse HEAD) --config lr=0.01 --config epochs=50
+# Start the MCP server (in a separate terminal)
+cer-mcp
 
-# Check status
+# Or use the CLI directly:
+cer submit $(git rev-parse HEAD)
 cer status <job_id>
-
-# Get results from W&B
 cer results <job_id>
 cer results <job_id> --history    # full metric history
-cer results <job_id> --json       # machine-readable output
 ```
 
 ## Customizing
@@ -107,7 +105,6 @@ CER sets these automatically in every job:
 | Variable | Value | Example |
 |----------|-------|---------|
 | `CER_COMMIT` | Full commit hash | `a1b2c3d4e5f6...` |
-| `CER_CONFIG` | JSON config overrides | `{"lr": "0.01"}` |
 | `WANDB_PROJECT` | W&B project name | `my-project` |
 | `WANDB_RUN_NAME` | Auto-generated run name | `cer-a1b2c3d4` |
 | `WANDB_TAGS` | Commit hash (for querying) | `a1b2c3d4e5f6...` |
