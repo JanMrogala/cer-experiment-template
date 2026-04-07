@@ -1,24 +1,20 @@
-"""Example training script. Replace with your own code."""
-import argparse
+"""Example training script using Hydra + W&B. Replace with your own code."""
 
+import hydra
 import wandb
+from omegaconf import DictConfig, OmegaConf
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=32)
-    return parser.parse_args()
+@hydra.main(config_path="configs", config_name="config", version_base=None)
+def main(cfg: DictConfig):
+    # CER sets WANDB_PROJECT, WANDB_RUN_NAME, WANDB_TAGS via environment
+    wandb.init(
+        project=cfg.wandb.project,
+        entity=cfg.wandb.entity,
+        config=OmegaConf.to_container(cfg, resolve=True),
+    )
 
-
-def main():
-    args = parse_args()
-
-    # CER sets WANDB_PROJECT, WANDB_RUN_NAME, WANDB_TAGS automatically
-    wandb.init(config=vars(args))
-
-    for epoch in range(args.epochs):
+    for epoch in range(cfg.training.max_epochs):
         # Replace with your actual training loop
         train_loss = 1.0 / (epoch + 1)
         val_loss = 1.2 / (epoch + 1)
@@ -29,7 +25,17 @@ def main():
             "val/loss": val_loss,
         })
 
-        print(f"Epoch {epoch + 1}/{args.epochs} - train_loss: {train_loss:.4f}")
+        print(f"Epoch {epoch + 1}/{cfg.training.max_epochs} - train_loss: {train_loss:.4f}")
+
+    # Save specified files as W&B artifacts for reproducibility
+    if "save_artifacts" in cfg:
+        artifact = wandb.Artifact(f"experiment-{wandb.run.id}", type="code")
+        for path in cfg.save_artifacts:
+            try:
+                artifact.add_file(path)
+            except Exception as e:
+                print(f"Warning: could not save {path}: {e}")
+        wandb.log_artifact(artifact)
 
     wandb.finish()
 

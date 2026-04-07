@@ -16,6 +16,9 @@ Commands:
   cancel <job_id>                     Cancel a running job
   results <job_id> [--history] [--key KEY ...]  Query W&B metrics
   list                                List all experiments
+  workspace create <name>             Create a new workspace (worktree + branch)
+  workspace list                      List all workspaces
+  workspace reset <name>              Reset workspace to latest main
 """
 
 
@@ -80,6 +83,27 @@ def main():
 
     elif cmd == "list":
         result = asyncio.run(call_tool("list_experiments", {}))
+
+    elif cmd == "workspace":
+        if len(argv) < 2:
+            print("Usage: cer workspace <create|list|reset> [name]")
+            sys.exit(1)
+        subcmd = argv[1]
+        if subcmd == "create":
+            if len(argv) < 3:
+                print("Usage: cer workspace create <name>")
+                sys.exit(1)
+            result = asyncio.run(call_tool("create_workspace", {"name": argv[2]}))
+        elif subcmd == "list":
+            result = asyncio.run(call_tool("list_workspaces", {}))
+        elif subcmd == "reset":
+            if len(argv) < 3:
+                print("Usage: cer workspace reset <name>")
+                sys.exit(1)
+            result = asyncio.run(call_tool("reset_workspace", {"name": argv[2]}))
+        else:
+            print(f"Unknown workspace command: {subcmd}")
+            sys.exit(1)
 
     else:
         print(f"Unknown command: {cmd}")

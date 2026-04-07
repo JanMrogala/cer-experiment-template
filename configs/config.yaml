@@ -1,0 +1,23 @@
+# Experiment configuration — the agent modifies these values.
+# Hydra logs this config automatically to W&B for reproducibility.
+
+model:
+  hidden_dim: 128
+  num_layers: 2
+  dropout: 0.1
+  lr: 1e-3
+
+training:
+  max_epochs: 10
+  batch_size: 64
+
+wandb:
+  project: ${oc.env:WANDB_PROJECT,my-project}
+  entity: ${oc.env:WANDB_ENTITY,null}
+
+# Files to save as W&B artifacts after training.
+# These are preserved even after the workspace is cleaned up.
+save_artifacts:
+  - "configs/config.yaml"
+  - "model.py"
+  - "train.py"

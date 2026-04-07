@@ -1,8 +1,3 @@
-# Project-specific pip dependencies.
-# These are installed at runtime inside the container:
-#   pip install -r requirements.txt
-#
-# Base packages (pytorch, wandb, scipy, etc.) are already in the container
-# via experiment.def. Only add extras here.
-
 mcp
+hydra-core
+omegaconf

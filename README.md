@@ -1,111 +1,193 @@
 # CER Experiment Template
 
-Template repository for GPU experiments managed by [Cluster Experiment Runner (CER)](https://github.com/JanMrogala/cluster-experiment-runner).
+Run GPU experiments on a remote SLURM cluster from inside a sandboxed container. Submit, monitor, and query results through the CER MCP server — no direct SSH access needed.
 
-## What's inside
+## How It Works
 
-| File | Purpose |
-|------|---------|
-| `run.sh` | Entrypoint script called by CER. Customize this. |
-| `train.py` | Example training script with W&B logging |
-| `experiment.def` | Singularity container definition (PyTorch + common ML libs) |
-| `requirements.txt` | Extra pip dependencies installed at runtime |
-
-## Setup
-
-### 1. Create your experiment repo from this template
-
-Click **"Use this template"** on GitHub, or:
-
-```bash
-gh repo create my-experiment --template JanMrogala/cer-experiment-template --private --clone
+```
+┌─────────────────────────────────────────────┐
+│  Apptainer Container (local)                │
+│                                             │
+│  Agent ──► ./cer submit <hash>              │
+│         ──► ./cer results <job_id>          │
+│         ──► edits code + configs/config.yaml│
+│                     │                       │
+│                     │ localhost:8000         │
+└─────────────────────┼───────────────────────┘
+                      │
+┌─────────────────────┼───────────────────────┐
+│  Host               ▼                       │
+│              cer-mcp (MCP server)           │
+│                     │                       │
+│                     │ SSH                    │
+│                     ▼                       │
+│              SLURM cluster (LUMI)           │
+│              └─ worktree + sbatch           │
+│              └─ Singularity container       │
+│              └─ W&B logging                 │
+└─────────────────────────────────────────────┘
 ```
 
-### 2. Build the container on the cluster (one-time)
+- **Agent** runs inside the container, can only reach the MCP server on localhost
+- **MCP server** runs on the host, has SSH access and manages the database
+- **Cluster** receives jobs via SSH, runs experiments in Singularity, logs to W&B
+- **W&B** stores metrics, configs, and artifact files for reproducibility
 
-```bash
-# Copy the def file
-scp experiment.def cluster:/path/to/containers/
+## Quick Start
 
-# Build on cluster (requires proot or fakeroot)
-ssh cluster "module load LUMI/23.09 partition/G systools/23.09 && \
-    singularity build /path/to/containers/experiment.sif /path/to/containers/experiment.def"
-```
-
-Or build locally with [Apptainer](https://apptainer.org/) and upload:
+### 1. Build the container
 
 ```bash
 apptainer build experiment.sif experiment.def
-scp experiment.sif cluster:/path/to/containers/
 ```
 
-### 3. Configure CER
+### 2. Start the MCP server (on the host)
 
-In your CER installation, set `cer.yaml`:
+```bash
+cer-mcp
+```
+
+### 3. Enter the container
+
+```bash
+apptainer exec --nv --bind .:/workspace --pwd /workspace experiment.sif bash
+```
+
+### 4. Create a workspace and run an experiment
+
+```bash
+./cer workspace create agent-001
+cd workspaces/agent-001
+
+# Edit configs/config.yaml (change hyperparameters)
+# Edit model.py, train.py (change architecture, training logic)
+
+git add -A && git commit -m "experiment: describe changes"
+git push origin agent-001
+
+./cer submit $(git rev-parse HEAD)
+./cer status <job_id>
+./cer results <job_id>
+```
+
+### 5. Reset when done
+
+```bash
+cd ../..
+./cer workspace reset agent-001
+```
+
+## Commands
+
+All commands go through `./cer`, which connects to the MCP server on the host.
+
+### Workspace Management
+
+| Command | Description |
+|---------|-------------|
+| `./cer workspace create <name>` | Create a workspace (git worktree + branch from main) |
+| `./cer workspace list` | List all active workspaces |
+| `./cer workspace reset <name>` | Delete local/remote branch and recreate from latest main |
+
+### Experiment Lifecycle
+
+| Command | Description |
+|---------|-------------|
+| `./cer submit <commit_hash>` | Submit experiment to the cluster |
+| `./cer status <job_id>` | Check SLURM job status (returns JSON) |
+| `./cer cancel <job_id>` | Cancel a running job |
+| `./cer list` | List all tracked experiments |
+
+### Results
+
+| Command | Description |
+|---------|-------------|
+| `./cer results <job_id>` | W&B summary metrics (JSON) |
+| `./cer results <job_id> --history` | Full training history |
+| `./cer results <job_id> --history --key train/loss --key val/loss` | Filter specific metrics |
+
+All output is JSON for easy parsing.
+
+## Configuration
+
+### Hydra Config (`configs/config.yaml`)
+
+The agent modifies this file to change experiment hyperparameters:
 
 ```yaml
-cluster:
-  repo_url: "git@github.com:you/my-experiment.git"
+model:
+  hidden_dim: 128
+  num_layers: 2
+  dropout: 0.1
+  lr: 1e-3
 
-container:
-  image: "/path/to/containers/experiment.sif"
+training:
+  max_epochs: 10
+  batch_size: 64
 
-experiment:
-  entrypoint: "bash run.sh"
+save_artifacts:
+  - "configs/config.yaml"
+  - "model.py"
+  - "train.py"
 ```
 
-### 4. Run experiments
+- The full Hydra config is automatically logged to W&B on every run
+- Files listed in `save_artifacts` are saved as W&B artifacts, preserving them after workspace cleanup
+
+### CER Config (`~/.config/cer/cer.yaml`)
+
+Configured on the host (not inside the container). Controls cluster connection, SLURM settings, and W&B credentials. See `cer.yaml.example` in the CER repo.
+
+## File Structure
+
+```
+├── cer                  # CLI client (calls MCP server)
+├── configs/
+│   └── config.yaml      # Hydra config (agent edits this)
+├── experiment.def       # Singularity container definition
+├── model.py             # Model code (agent edits this)
+├── train.py             # Training script (Hydra + W&B)
+├── run.sh               # Entrypoint called by CER on the cluster
+├── requirements.txt     # Extra pip deps (installed at runtime)
+└── workspaces/          # Agent worktrees (gitignored)
+    ├── agent-001/
+    ├── agent-002/
+    └── ...
+```
+
+## Agent Workflow
+
+A typical autoresearch loop:
+
+1. **Create workspace**: `./cer workspace create agent-001`
+2. **Edit code**: modify `configs/config.yaml`, `model.py`, `train.py`
+3. **Commit & push**: `git add -A && git commit -m "..." && git push origin agent-001`
+4. **Submit**: `./cer submit $(git rev-parse HEAD)`
+5. **Wait & check**: `./cer status <job_id>` (repeat until COMPLETED)
+6. **Analyze**: `./cer results <job_id> --history` — parse JSON, decide next step
+7. **Iterate**: go back to step 2 with new changes based on results
+8. **Reset**: `./cer workspace reset agent-001` when starting a new experiment line
+
+Multiple agents can run this loop in parallel, each in their own workspace.
+
+## Environment Variables
+
+Set automatically by CER in every cluster job:
+
+| Variable | Description |
+|----------|-------------|
+| `CER_COMMIT` | Full git commit hash |
+| `WANDB_PROJECT` | W&B project name |
+| `WANDB_RUN_NAME` | `cer-<commit_short>` |
+| `WANDB_TAGS` | Commit hash (used to find the run via `./cer results`) |
+| `WANDB_API_KEY` | W&B API key |
+
+## Rebuilding the Container
+
+Only rebuild when `experiment.def` changes (new system packages or pip deps). Code changes are picked up automatically via the bind-mounted workspace.
 
 ```bash
-# Edit code
-vim train.py
-
-# Commit and push
-git add -A && git commit -m "try higher learning rate"
-git push
-
-# Start the MCP server (in a separate terminal)
-cer-mcp
-
-# Or use the CLI directly:
-cer submit $(git rev-parse HEAD)
-cer status <job_id>
-cer results <job_id>
-cer results <job_id> --history    # full metric history
+apptainer build --force experiment.sif experiment.def
 ```
 
-## Customizing
-
-### Different entrypoint
-
-Edit `run.sh` to run whatever you need:
-
-```bash
-# Multi-step pipeline
-bash scripts/preprocess.sh
-python train.py "$@"
-python evaluate.py
-
-# Or call a module
-python -m mypackage.train "$@"
-```
-
-### Additional system dependencies
-
-Edit `experiment.def`, add packages to the `%post` section, and rebuild the container.
-
-### Additional pip dependencies
-
-Add to `requirements.txt` — installed automatically at job start. For faster startup, add frequently-used packages to `experiment.def` instead.
-
-## Environment variables
-
-CER sets these automatically in every job:
-
-| Variable | Value | Example |
-|----------|-------|---------|
-| `CER_COMMIT` | Full commit hash | `a1b2c3d4e5f6...` |
-| `WANDB_PROJECT` | W&B project name | `my-project` |
-| `WANDB_RUN_NAME` | Auto-generated run name | `cer-a1b2c3d4` |
-| `WANDB_TAGS` | Commit hash (for querying) | `a1b2c3d4e5f6...` |
-| `WANDB_API_KEY` | W&B API key | (from cer.yaml) |
+On the cluster, CER auto-rebuilds the container when it detects `experiment.def` has changed (via md5 checksum).
