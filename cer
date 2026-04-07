@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""CER CLI client — thin wrapper that calls the CER MCP server."""
+
+import asyncio
+import json
+import sys
+
+MCP_URL = "http://localhost:8000/sse"
+
+USAGE = """\
+Usage: cer <command> [args]
+
+Commands:
+  submit <commit_hash>                Submit experiment to cluster
+  status <job_id>                     Check SLURM job status
+  cancel <job_id>                     Cancel a running job
+  results <job_id> [--history] [--key KEY ...]  Query W&B metrics
+  list                                List all experiments
+"""
+
+
+async def call_tool(name: str, args: dict) -> str:
+    from mcp.client.session import ClientSession
+    from mcp.client.sse import sse_client
+
+    async with sse_client(MCP_URL) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(name, args)
+            return result.content[0].text
+
+
+def main():
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("-h", "--help"):
+        print(USAGE)
+        sys.exit(0)
+
+    cmd = argv[0]
+
+    if cmd == "submit":
+        if len(argv) < 2:
+            print("Usage: cer submit <commit_hash>")
+            sys.exit(1)
+        result = asyncio.run(call_tool("submit", {"commit_hash": argv[1]}))
+
+    elif cmd == "status":
+        if len(argv) < 2:
+            print("Usage: cer status <job_id>")
+            sys.exit(1)
+        result = asyncio.run(call_tool("status", {"job_id": argv[1]}))
+
+    elif cmd == "cancel":
+        if len(argv) < 2:
+            print("Usage: cer cancel <job_id>")
+            sys.exit(1)
+        result = asyncio.run(call_tool("cancel", {"job_id": argv[1]}))
+
+    elif cmd == "results":
+        if len(argv) < 2:
+            print("Usage: cer results <job_id> [--history] [--key KEY ...]")
+            sys.exit(1)
+        args = {"job_id": argv[1]}
+        rest = argv[2:]
+        if "--history" in rest:
+            args["history"] = True
+            rest.remove("--history")
+        keys = []
+        while "--key" in rest:
+            idx = rest.index("--key")
+            if idx + 1 < len(rest):
+                keys.append(rest[idx + 1])
+                rest.pop(idx)
+                rest.pop(idx)
+            else:
+                rest.pop(idx)
+        if keys:
+            args["keys"] = keys
+        result = asyncio.run(call_tool("results", args))
+
+    elif cmd == "list":
+        result = asyncio.run(call_tool("list_experiments", {}))
+
+    else:
+        print(f"Unknown command: {cmd}")
+        print(USAGE)
+        sys.exit(1)
+
+    print(result)
+
+
+if __name__ == "__main__":
+    main()

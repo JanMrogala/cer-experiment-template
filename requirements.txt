@@ -4,3 +4,5 @@
 #
 # Base packages (pytorch, wandb, scipy, etc.) are already in the container
 # via experiment.def. Only add extras here.
+
+mcp
