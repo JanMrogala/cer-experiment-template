@@ -104,7 +104,7 @@ All commands go through `./cer`, which connects to the MCP server on the host.
 |---------|-------------|
 | `./cer results <job_id>` | W&B summary metrics (JSON) |
 | `./cer results <job_id> --history` | Full training history |
-| `./cer results <job_id> --history --key train/loss --key val/loss` | Filter specific metrics |
+| `./cer results <job_id> --history --key train_loss --key val_loss` | Filter specific metrics |
 
 All output is JSON for easy parsing.
 
@@ -181,6 +181,114 @@ Set automatically by CER in every cluster job:
 | `WANDB_RUN_NAME` | `cer-<commit_short>` |
 | `WANDB_TAGS` | Commit hash (used to find the run via `./cer results`) |
 | `WANDB_API_KEY` | W&B API key |
+
+## Training Script Integration
+
+Your training script must include W&B logging and artifact saving for CER to track results. Here are the required snippets:
+
+### 1. Imports and Hydra entry point
+
+```python
+import hydra
+import wandb
+from omegaconf import DictConfig, OmegaConf
+
+@hydra.main(config_path="configs", config_name="config", version_base=None)
+def main(cfg: DictConfig):
+    ...
+```
+
+### 2. Initialize W&B
+
+Call this at the start of training. CER sets `WANDB_PROJECT`, `WANDB_RUN_NAME`, `WANDB_TAGS`, and `WANDB_API_KEY` as environment variables — `wandb.init` picks them up automatically. Pass the full Hydra config so every hyperparameter is logged:
+
+```python
+wandb.init(
+    project=cfg.wandb.project,
+    entity=cfg.wandb.entity,
+    config=OmegaConf.to_container(cfg, resolve=True),
+)
+```
+
+### 3. Log metrics
+
+Log metrics with `wandb.log()` during training. Use `/` to group them (e.g. `train/loss`, `val/acc`). These are what `./cer results` returns:
+
+```python
+wandb.log({
+    "epoch": epoch,
+    "train/loss": train_loss,
+    "val/loss": val_loss,
+    "val/acc": val_acc,
+})
+```
+
+### 4. Save artifacts
+
+Files listed in `save_artifacts` in `configs/config.yaml` are saved as W&B artifacts. This preserves your code and config after the workspace is cleaned up:
+
+```python
+if "save_artifacts" in cfg:
+    artifact = wandb.Artifact(f"experiment-{wandb.run.id}", type="code")
+    for path in cfg.save_artifacts:
+        try:
+            artifact.add_file(path)
+        except Exception as e:
+            print(f"Warning: could not save {path}: {e}")
+    wandb.log_artifact(artifact)
+```
+
+Add any files you want preserved to `save_artifacts` in the config:
+
+```yaml
+save_artifacts:
+  - "configs/config.yaml"
+  - "model.py"
+  - "train.py"
+```
+
+### 5. Finish W&B
+
+Always call `wandb.finish()` at the end so the run is marked complete:
+
+```python
+wandb.finish()
+```
+
+### Minimal complete example
+
+```python
+import hydra
+import wandb
+from omegaconf import DictConfig, OmegaConf
+
+@hydra.main(config_path="configs", config_name="config", version_base=None)
+def main(cfg: DictConfig):
+    wandb.init(
+        project=cfg.wandb.project,
+        entity=cfg.wandb.entity,
+        config=OmegaConf.to_container(cfg, resolve=True),
+    )
+
+    for epoch in range(cfg.training.max_epochs):
+        train_loss, val_loss = your_training_step(epoch)
+        wandb.log({"epoch": epoch, "train/loss": train_loss, "val/loss": val_loss})
+
+    # Save code as W&B artifact
+    if "save_artifacts" in cfg:
+        artifact = wandb.Artifact(f"experiment-{wandb.run.id}", type="code")
+        for path in cfg.save_artifacts:
+            try:
+                artifact.add_file(path)
+            except Exception as e:
+                print(f"Warning: could not save {path}: {e}")
+        wandb.log_artifact(artifact)
+
+    wandb.finish()
+
+if __name__ == "__main__":
+    main()
+```
 
 ## Rebuilding the Container
 

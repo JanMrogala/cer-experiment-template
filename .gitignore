@@ -7,4 +7,5 @@ wandb/
 *.sif
 data/
 outputs/
+workspaces/
 .~*
