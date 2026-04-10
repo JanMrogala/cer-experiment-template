@@ -14,7 +14,7 @@ MCP server (host machine)
   |
   |  SSH
   v
-LUMI cluster (SLURM + Singularity + W&B)
+LUMI cluster (SLURM + Singularity + W&B, ephemeral)
 ```
 
 - You can edit code and configs in your workspace

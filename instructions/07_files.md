@@ -31,11 +31,13 @@
 
 ## What Gets Sent to the Cluster
 
-When you `./cer submit`, the cluster checks out your exact commit. Everything tracked in git at that commit is available on the cluster. Gitignored files (data, outputs, wandb cache) are not sent — datasets must be downloaded or bind-mounted on the cluster side.
+When you `./cer submit`, the cluster clones your repo and checks out the exact commit inside a Singularity container. Everything tracked in git at that commit is available. Gitignored files (data, outputs, wandb cache) are not sent — datasets must be downloaded or bind-mounted on the cluster side.
+
+When the job ends, the container's writable layer is discarded automatically. No cleanup needed.
 
 ## What Gets Preserved After Reset
 
-When you `./cer workspace reset`, the worktree and branch are deleted. The only surviving record is:
+When you `./cer workspace reset`, the local worktree and branch are deleted. The only surviving record is:
 
 1. W&B run data (metrics, config, summaries) — always preserved
 2. W&B artifacts (files listed in `save_artifacts`) — preserved if you added artifact saving to `train.py`

@@ -22,8 +22,8 @@ Run GPU experiments on a remote SLURM cluster from inside a sandboxed container.
 │                     │ SSH                    │
 │                     ▼                       │
 │              SLURM cluster (LUMI)           │
-│              └─ worktree + sbatch           │
 │              └─ Singularity container       │
+│              └─ git clone + checkout        │
 │              └─ W&B logging                 │
 └─────────────────────────────────────────────┘
 ```
